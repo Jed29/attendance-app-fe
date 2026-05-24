@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Absensi Kantor",
+    "slug": "absensi-kantor",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "plugins": [
+      "expo-location",
+      "expo-camera",
+      "expo-image-picker",
+      "expo-secure-store"
+    ],
+    "android": {
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA"
+      ],
+      "package": "com.pli.absensi"
+    },
+    "ios": {
+      "bundleIdentifier": "com.pli.absensi",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Digunakan untuk verifikasi lokasi saat absen.",
+        "NSCameraUsageDescription": "Digunakan untuk foto selfie saat absen."
+      }
+    }
+  }
+}
