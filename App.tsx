@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from 'react'
-import { StatusBar } from 'expo-status-bar'
 import { View, ActivityIndicator } from 'react-native'
+import { StatusBar } from 'expo-status-bar'
 import { useAppStore } from './src/store/useAppStore'
 import LoginScreen from './src/screens/LoginScreen'
-import HomeScreen from './src/screens/HomeScreen'
 import CheckInScreen from './src/screens/CheckInScreen'
 import HistoryScreen from './src/screens/HistoryScreen'
-import LeaveScreen from './src/screens/LeaveScreen'
+import MainTabs from './src/navigation/MainTabs'
 
-type Screen = 'login' | 'home' | 'checkin' | 'history' | 'leave'
+type Screen = 'login' | 'main' | 'checkin' | 'history'
 
 export default function App() {
   const { user, loadAuth, clearAuth } = useAppStore()
@@ -20,42 +19,38 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!booting) {
-      setScreen(user ? 'home' : 'login')
-    }
+    if (!booting) setScreen(user ? 'main' : 'login')
   }, [user, booting])
 
   if (booting) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator color="#3b82f6" size="large" />
+      <View style={{ flex: 1, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator color="#4CAF50" size="large" />
       </View>
     )
   }
 
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style="dark" backgroundColor="#FFFFFF" />
       {screen === 'login' && (
-        <LoginScreen onLoginSuccess={() => setScreen('home')} />
+        <LoginScreen onLoginSuccess={() => setScreen('main')} />
       )}
-      {screen === 'home' && (
-        <HomeScreen
-          onNavigate={(s) => setScreen(s)}
+      {screen === 'main' && (
+        <MainTabs
+          onNavigateCheckin={() => setScreen('checkin')}
+          onNavigateHistory={() => setScreen('history')}
           onLogout={async () => { await clearAuth(); setScreen('login') }}
         />
       )}
       {screen === 'checkin' && (
         <CheckInScreen
-          onSuccess={() => setScreen('home')}
-          onBack={() => setScreen('home')}
+          onSuccess={() => setScreen('main')}
+          onBack={() => setScreen('main')}
         />
       )}
       {screen === 'history' && (
-        <HistoryScreen onBack={() => setScreen('home')} />
-      )}
-      {screen === 'leave' && (
-        <LeaveScreen onBack={() => setScreen('home')} />
+        <HistoryScreen onBack={() => setScreen('main')} />
       )}
     </>
   )

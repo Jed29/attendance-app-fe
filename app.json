@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Absensi Kantor",
+    "name": "Pertalife Attendance",
     "slug": "absensi-kantor",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,7 +9,8 @@
       "expo-location",
       "expo-camera",
       "expo-image-picker",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-router"
     ],
     "android": {
       "permissions": [

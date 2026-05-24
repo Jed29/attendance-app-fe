@@ -2,42 +2,69 @@ import React, { useState, useEffect } from 'react'
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
   Alert, ActivityIndicator, ScrollView, FlatList,
+  Platform, StatusBar, Animated,
 } from 'react-native'
 import dayjs from 'dayjs'
 import { requestLeave, getMyLeaves } from '../modules/leave'
 import { LeaveRequest } from '../types'
 import { extractError } from '../lib/api'
+import DatePickerSheet from '../components/DatePickerSheet'
+import FeedbackModal from '../components/FeedbackModal'
+
+const G = '#43A047'
+const C = {
+  bg: '#FFFFFF',
+  surface: '#F4FAF4',
+  border: '#E2F0E2',
+  primary: G,
+  primaryDim: 'rgba(67,160,71,0.10)',
+  amber: '#F59E0B',
+  red: '#EF4444',
+  text1: '#1A2B1A',
+  text2: '#4A7A4A',
+  text3: '#9CC09C',
+}
+
+type LeaveType = 'sick' | 'annual' | 'other'
+
+const LEAVE_TYPES: { value: LeaveType; label: string; desc: string }[] = [
+  { value: 'sick',   label: 'Sakit',         desc: 'Surat dokter diperlukan' },
+  { value: 'annual', label: 'Cuti Tahunan',  desc: 'Jatah cuti reguler' },
+  { value: 'other',  label: 'Lainnya',       desc: 'Keperluan lain' },
+]
+
+const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
+  pending:  { color: C.amber,   bg: '#FFF8E1', label: 'Menunggu' },
+  approved: { color: G,         bg: '#E8F5E9', label: 'Disetujui' },
+  rejected: { color: C.red,     bg: '#FFEBEE', label: 'Ditolak' },
+}
 
 interface Props {
   onBack: () => void
 }
 
-type LeaveType = 'sick' | 'annual' | 'other'
-
-const LEAVE_TYPES: { value: LeaveType; label: string }[] = [
-  { value: 'sick', label: '🤒 Sakit' },
-  { value: 'annual', label: '🌴 Cuti Tahunan' },
-  { value: 'other', label: '📝 Lainnya' },
-]
-
-const STATUS_COLOR: Record<string, string> = {
-  pending: '#f59e0b',
-  approved: '#22c55e',
-  rejected: '#ef4444',
-}
-
 export default function LeaveScreen({ onBack }: Props) {
-  const [tab, setTab] = useState<'request' | 'history'>('request')
+  const [tab, setTab]             = useState<'request' | 'history'>('request')
   const [leaveType, setLeaveType] = useState<LeaveType>('annual')
   const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [reason, setReason] = useState('')
+  const [endDate, setEndDate]     = useState('')
+  const [reason, setReason]       = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [history, setHistory] = useState<LeaveRequest[]>([])
+  const [history, setHistory]     = useState<LeaveRequest[]>([])
   const [histLoading, setHistLoading] = useState(false)
+  const [focused, setFocused]     = useState<string | null>(null)
+  const [datePicker, setDatePicker] = useState<{ visible: boolean; target: 'start' | 'end' }>({ visible: false, target: 'start' })
+  const [modal, setModal] = useState<{ visible: boolean; type: 'success'|'error'; title: string; message?: string }>({ visible: false, type: 'success', title: '' })
+  const tabAnim = React.useRef(new Animated.Value(0)).current
 
   useEffect(() => {
     if (tab === 'history') loadHistory()
+    Animated.spring(tabAnim, {
+      toValue: tab === 'history' ? 1 : 0,
+      friction: 8,
+      tension: 80,
+      useNativeDriver: false,
+    }).start()
   }, [tab])
 
   const loadHistory = async () => {
@@ -53,134 +80,364 @@ export default function LeaveScreen({ onBack }: Props) {
 
   const handleSubmit = async () => {
     if (!startDate || !endDate) {
-      Alert.alert('Error', 'Tanggal mulai dan selesai wajib diisi (format: YYYY-MM-DD)')
+      setModal({ visible: true, type: 'error', title: 'Tanggal Belum Dipilih', message: 'Pilih tanggal mulai dan selesai terlebih dahulu' })
       return
     }
     setSubmitting(true)
     try {
       await requestLeave(leaveType, startDate, endDate, reason)
-      Alert.alert('Berhasil ✅', 'Pengajuan cuti/izin terkirim, menunggu persetujuan')
+      setModal({ visible: true, type: 'success', title: 'Pengajuan Terkirim!', message: 'Permintaan cuti/izin sedang menunggu persetujuan atasan.' })
       setStartDate('')
       setEndDate('')
       setReason('')
     } catch (err) {
-      Alert.alert('Gagal', extractError(err))
+      setModal({ visible: true, type: 'error', title: 'Gagal Mengirim', message: extractError(err) })
     } finally {
       setSubmitting(false)
     }
   }
 
-  return (
-    <View style={styles.container}>
-      <TouchableOpacity onPress={onBack} style={styles.back}>
-        <Text style={styles.backText}>← Kembali</Text>
-      </TouchableOpacity>
-      <Text style={styles.title}>Cuti & Izin</Text>
+  const tabIndicatorLeft = tabAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['3%', '51%'],
+  })
 
-      <View style={styles.tabs}>
-        <TouchableOpacity style={[styles.tab, tab === 'request' && styles.tabActive]} onPress={() => setTab('request')}>
-          <Text style={[styles.tabText, tab === 'request' && styles.tabTextActive]}>Ajukan</Text>
+  const daysBetween = startDate && endDate
+    ? Math.max(1, dayjs(endDate).diff(dayjs(startDate), 'day') + 1)
+    : null
+
+  return (
+    <View style={s.root}>
+      <StatusBar barStyle="light-content" backgroundColor={G} />
+
+      {/* Green hero header */}
+      <View style={s.hero}>
+        <TouchableOpacity onPress={onBack} activeOpacity={0.7}>
+          <Text style={s.backText}>‹ KEMBALI</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.tab, tab === 'history' && styles.tabActive]} onPress={() => setTab('history')}>
-          <Text style={[styles.tabText, tab === 'history' && styles.tabTextActive]}>Riwayat</Text>
-        </TouchableOpacity>
+        <View style={s.heroRow}>
+          <View>
+            <Text style={s.heroTitle}>Izin & Cuti</Text>
+            <Text style={s.heroSub}>Ajukan atau lihat riwayat izinmu</Text>
+          </View>
+        </View>
       </View>
 
-      {tab === 'request'
-        ? (
-          <ScrollView>
-            <Text style={styles.label}>Jenis</Text>
-            <View style={styles.typeRow}>
-              {LEAVE_TYPES.map((t) => (
-                <TouchableOpacity
-                  key={t.value}
-                  style={[styles.typeBtn, leaveType === t.value && styles.typeBtnActive]}
-                  onPress={() => setLeaveType(t.value)}
-                >
-                  <Text style={[styles.typeBtnText, leaveType === t.value && styles.typeBtnTextActive]}>
-                    {t.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+      {/* White body */}
+      <View style={s.body}>
+        {/* Tab switcher */}
+        <View style={s.tabWrap}>
+          <Animated.View style={[s.tabIndicator, { left: tabIndicatorLeft }]} />
+          <TouchableOpacity style={s.tabBtn} onPress={() => setTab('request')} activeOpacity={0.8}>
+            <Text style={[s.tabLabel, tab === 'request' && s.tabLabelActive]}>Ajukan Cuti</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.tabBtn} onPress={() => setTab('history')} activeOpacity={0.8}>
+            <Text style={[s.tabLabel, tab === 'history' && s.tabLabelActive]}>Riwayat</Text>
+          </TouchableOpacity>
+        </View>
+
+        {tab === 'request' ? (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={s.formContent}
+          >
+            {/* Leave type */}
+            <Text style={s.sectionLabel}>Jenis Cuti / Izin</Text>
+            <View style={s.typeRow}>
+              {LEAVE_TYPES.map((t) => {
+                const active = leaveType === t.value
+                return (
+                  <TouchableOpacity
+                    key={t.value}
+                    style={[s.typeChip, active && s.typeChipActive]}
+                    onPress={() => setLeaveType(t.value)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[s.typeLabel, active && s.typeLabelActive]}>{t.label}</Text>
+                    <Text style={[s.typeDesc, active && s.typeDescActive]}>{t.desc}</Text>
+                  </TouchableOpacity>
+                )
+              })}
             </View>
 
-            <Text style={styles.label}>Tanggal Mulai (YYYY-MM-DD)</Text>
-            <TextInput style={styles.input} value={startDate} onChangeText={setStartDate}
-              placeholder="2026-05-26" placeholderTextColor="#475569" />
+            {/* Date pickers */}
+            <Text style={s.sectionLabel}>Periode Cuti</Text>
+            <View style={s.dateRow}>
+              <TouchableOpacity
+                style={[s.dateField, { flex: 1 }, startDate && s.dateFieldFilled]}
+                onPress={() => setDatePicker({ visible: true, target: 'start' })}
+                activeOpacity={0.8}
+              >
+                <Text style={s.dateFieldLabel}>MULAI</Text>
+                <Text style={[s.dateFieldVal, !startDate && s.dateFieldPlaceholder]}>
+                  {startDate ? dayjs(startDate).format('D MMM YY') : '—'}
+                </Text>
+              </TouchableOpacity>
 
-            <Text style={styles.label}>Tanggal Selesai (YYYY-MM-DD)</Text>
-            <TextInput style={styles.input} value={endDate} onChangeText={setEndDate}
-              placeholder="2026-05-27" placeholderTextColor="#475569" />
+              <View style={s.dateSep}>
+                <Text style={s.dateSepText}>→</Text>
+              </View>
 
-            <Text style={styles.label}>Alasan</Text>
-            <TextInput style={[styles.input, { height: 100 }]} value={reason} onChangeText={setReason}
-              placeholder="Keterangan..." placeholderTextColor="#475569"
-              multiline textAlignVertical="top" />
+              <TouchableOpacity
+                style={[s.dateField, { flex: 1 }, endDate && s.dateFieldFilled]}
+                onPress={() => setDatePicker({ visible: true, target: 'end' })}
+                activeOpacity={0.8}
+              >
+                <Text style={s.dateFieldLabel}>SELESAI</Text>
+                <Text style={[s.dateFieldVal, !endDate && s.dateFieldPlaceholder]}>
+                  {endDate ? dayjs(endDate).format('D MMM YY') : '—'}
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-            <TouchableOpacity style={[styles.submitBtn, submitting && styles.disabled]}
-              onPress={handleSubmit} disabled={submitting}>
+            {daysBetween && (
+              <View style={s.durationBadge}>
+                <Text style={s.durationText}>{daysBetween} hari kerja</Text>
+              </View>
+            )}
+
+            {/* Reason */}
+            <Text style={s.sectionLabel}>Alasan</Text>
+            <TextInput
+              style={[s.textarea, focused === 'reason' && s.textareaFocused]}
+              value={reason}
+              onChangeText={setReason}
+              placeholder="Jelaskan alasan pengajuan cuti atau izin kamu..."
+              placeholderTextColor={C.text3}
+              multiline
+              textAlignVertical="top"
+              onFocus={() => setFocused('reason')}
+              onBlur={() => setFocused(null)}
+            />
+
+            <TouchableOpacity
+              style={[s.submitBtn, submitting && s.submitBtnDisabled]}
+              onPress={handleSubmit}
+              disabled={submitting}
+              activeOpacity={0.85}
+            >
               {submitting
-                ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.submitText}>Kirim Pengajuan</Text>}
+                ? <ActivityIndicator color="#FFFFFF" size="small" />
+                : <Text style={s.submitBtnText}>Kirim Pengajuan →</Text>
+              }
             </TouchableOpacity>
           </ScrollView>
-        )
-        : histLoading
-          ? <ActivityIndicator color="#3b82f6" style={{ marginTop: 40 }} />
-          : (
-            <FlatList
-              data={history}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <View style={styles.card}>
-                  <View style={styles.cardHeader}>
-                    <Text style={styles.leaveType}>
-                      {LEAVE_TYPES.find(t => t.value === item.leave_type)?.label ?? item.leave_type}
-                    </Text>
-                    <Text style={[styles.status, { color: STATUS_COLOR[item.status] }]}>
-                      {item.status === 'pending' ? 'Menunggu'
-                        : item.status === 'approved' ? 'Disetujui' : 'Ditolak'}
-                    </Text>
+        ) : histLoading ? (
+          <ActivityIndicator color={G} style={{ marginTop: 60 }} size="large" />
+        ) : (
+          <FlatList
+            data={history}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={s.histList}
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item }) => {
+              const cfg = STATUS_CONFIG[item.status] ?? { color: C.text2, bg: C.surface, label: item.status }
+              const typeInfo = LEAVE_TYPES.find((t) => t.value === item.leave_type)
+              const days = dayjs(item.end_date).diff(dayjs(item.start_date), 'day') + 1
+              return (
+                <View style={s.histCard}>
+                  <View style={s.histCardTop}>
+                    <View style={s.histMid}>
+                      <Text style={s.histType}>{typeInfo?.label ?? item.leave_type}</Text>
+                      <Text style={s.histDates}>
+                        {dayjs(item.start_date).format('D MMM')} – {dayjs(item.end_date).format('D MMM YYYY')}
+                      </Text>
+                      {item.reason ? (
+                        <Text style={s.histReason} numberOfLines={2}>{item.reason}</Text>
+                      ) : null}
+                    </View>
+                    <View style={[s.histStatusBadge, { backgroundColor: cfg.bg }]}>
+                      <Text style={[s.histStatusText, { color: cfg.color }]}>{cfg.label}</Text>
+                      <Text style={[s.histDays, { color: cfg.color }]}>{days}h</Text>
+                    </View>
                   </View>
-                  <Text style={styles.dateRange}>
-                    {dayjs(item.start_date).format('D MMM')} – {dayjs(item.end_date).format('D MMM YYYY')}
-                  </Text>
-                  {item.reason ? <Text style={styles.reason}>{item.reason}</Text> : null}
                 </View>
-              )}
-              ListEmptyComponent={<Text style={styles.empty}>Belum ada riwayat</Text>}
-            />
-          )
-      }
+              )
+            }}
+            ListEmptyComponent={
+              <View style={s.empty}>
+                <Text style={s.emptyTitle}>Belum ada riwayat</Text>
+                <Text style={s.emptySub}>Pengajuan cuti atau izinmu{'\n'}akan muncul di sini</Text>
+              </View>
+            }
+          />
+        )}
+      </View>
+
+      <DatePickerSheet
+        visible={datePicker.visible}
+        value={datePicker.target === 'start' ? startDate : endDate}
+        onConfirm={(date) => {
+          if (datePicker.target === 'start') setStartDate(date)
+          else setEndDate(date)
+          setDatePicker((d) => ({ ...d, visible: false }))
+        }}
+        onCancel={() => setDatePicker((d) => ({ ...d, visible: false }))}
+      />
+
+      <FeedbackModal
+        visible={modal.visible}
+        type={modal.type}
+        title={modal.title}
+        message={modal.message}
+        confirmText="OK"
+        onConfirm={() => setModal((m) => ({ ...m, visible: false }))}
+      />
     </View>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a', padding: 24, paddingTop: 60 },
-  back: { marginBottom: 16 },
-  backText: { color: '#3b82f6', fontSize: 16 },
-  title: { fontSize: 26, fontWeight: 'bold', color: '#fff', marginBottom: 16 },
-  tabs: { flexDirection: 'row', backgroundColor: '#1e293b', borderRadius: 10, marginBottom: 24, padding: 4 },
-  tab: { flex: 1, padding: 10, borderRadius: 8, alignItems: 'center' },
-  tabActive: { backgroundColor: '#3b82f6' },
-  tabText: { color: '#94a3b8', fontWeight: '600' },
-  tabTextActive: { color: '#fff' },
-  label: { color: '#94a3b8', fontSize: 13, marginBottom: 6, marginTop: 12 },
-  input: { backgroundColor: '#1e293b', borderRadius: 10, padding: 14, color: '#fff', fontSize: 15, borderWidth: 1, borderColor: '#334155' },
-  typeRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  typeBtn: { borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12, borderWidth: 1, borderColor: '#334155' },
-  typeBtnActive: { backgroundColor: '#3b82f6', borderColor: '#3b82f6' },
-  typeBtnText: { color: '#94a3b8', fontSize: 13 },
-  typeBtnTextActive: { color: '#fff' },
-  submitBtn: { backgroundColor: '#3b82f6', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 24, marginBottom: 40 },
-  disabled: { opacity: 0.5 },
-  submitText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  card: { backgroundColor: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 12 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  leaveType: { color: '#e2e8f0', fontWeight: '600' },
-  status: { fontWeight: '600', fontSize: 13 },
-  dateRange: { color: '#94a3b8', fontSize: 13 },
-  reason: { color: '#64748b', fontSize: 12, marginTop: 4 },
-  empty: { textAlign: 'center', color: '#475569', marginTop: 60, fontSize: 15 },
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: G },
+
+  hero: {
+    paddingHorizontal: 24,
+    paddingTop: Platform.OS === 'ios' ? 60 : 48,
+    paddingBottom: 28,
+  },
+  backText: { fontSize: 11, letterSpacing: 2, color: 'rgba(255,255,255,0.75)', fontWeight: '700', marginBottom: 20 },
+  heroRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  heroTitle: { fontSize: 28, fontWeight: '900', color: '#FFFFFF', marginBottom: 6 },
+  heroSub: { fontSize: 13, color: 'rgba(255,255,255,0.70)' },
+  heroIcon: { display: 'none' },
+  heroIconText: { display: 'none' },
+
+  body: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    paddingTop: 8,
+    overflow: 'hidden',
+  },
+
+  tabWrap: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginVertical: 16,
+    backgroundColor: C.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 4,
+    height: 48,
+    position: 'relative',
+  },
+  tabIndicator: {
+    position: 'absolute',
+    width: '47%',
+    top: 4, bottom: 4,
+    backgroundColor: G,
+    borderRadius: 9,
+  },
+  tabBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
+  tabLabel: { fontSize: 13, fontWeight: '700', color: C.text2 },
+  tabLabelActive: { color: '#FFFFFF' },
+
+  formContent: { paddingHorizontal: 20, paddingBottom: 48, paddingTop: 4 },
+  sectionLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 1.5, color: C.text3, marginBottom: 10, marginTop: 8 },
+
+  typeRow: { gap: 10, marginBottom: 4 },
+  typeChip: {
+    backgroundColor: C.surface,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  typeChipActive: {
+    borderColor: G,
+    backgroundColor: 'rgba(67,160,71,0.07)',
+  },
+  typeLabel: { fontSize: 15, fontWeight: '700', color: C.text1, flex: 1 },
+  typeLabelActive: { color: G },
+  typeDesc: { fontSize: 11, color: C.text3 },
+  typeDescActive: { color: G + 'AA' },
+
+  dateRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  dateField: {
+    backgroundColor: C.surface,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    padding: 14,
+  },
+  dateFieldFilled: { borderColor: G },
+  dateFieldLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 2, color: C.text3, marginBottom: 6 },
+  dateFieldVal: { fontSize: 16, fontWeight: '700', color: C.text1 },
+  dateFieldPlaceholder: { color: C.text3 },
+  dateSep: { alignItems: 'center', paddingBottom: 4 },
+  dateSepText: { fontSize: 18, color: C.text3, fontWeight: '300' },
+  durationBadge: {
+    backgroundColor: 'rgba(67,160,71,0.10)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    alignSelf: 'flex-start',
+    marginTop: 10,
+  },
+  durationText: { fontSize: 12, color: G, fontWeight: '700' },
+
+  textarea: {
+    backgroundColor: C.surface,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    color: C.text1,
+    fontSize: 15,
+    height: 100,
+    textAlignVertical: 'top',
+  },
+  textareaFocused: { borderColor: G },
+  submitBtn: {
+    backgroundColor: G,
+    borderRadius: 14,
+    paddingVertical: 17,
+    alignItems: 'center',
+    marginTop: 24,
+    shadowColor: G,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  submitBtnDisabled: { opacity: 0.5 },
+  submitBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', letterSpacing: 1 },
+
+  histList: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 40 },
+  histCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+    overflow: 'hidden',
+  },
+  histCardTop: { flexDirection: 'row', alignItems: 'flex-start', padding: 16, gap: 12 },
+  histMid: { flex: 1 },
+  histType: { fontSize: 15, fontWeight: '700', color: C.text1, marginBottom: 4 },
+  histDates: { fontSize: 12, color: C.text2, marginBottom: 4, letterSpacing: 0.3 },
+  histReason: { fontSize: 12, color: C.text3, lineHeight: 17 },
+  histStatusBadge: {
+    borderRadius: 10,
+    padding: 10,
+    alignItems: 'center',
+    minWidth: 60,
+  },
+  histStatusText: { fontSize: 11, fontWeight: '800', marginBottom: 4 },
+  histDays: { fontSize: 13, fontWeight: '900' },
+
+  empty: { alignItems: 'center', paddingTop: 80 },
+  emptyIcon: { display: 'none' },
+  emptyTitle: { fontSize: 17, fontWeight: '800', color: C.text1, marginBottom: 8 },
+  emptySub: { fontSize: 13, color: C.text3, textAlign: 'center', lineHeight: 20 },
 })

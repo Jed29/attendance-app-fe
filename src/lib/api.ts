@@ -15,7 +15,8 @@ api.interceptors.request.use(async (config) => {
 
 export function extractError(err: unknown): string {
   if (err instanceof AxiosError) {
-    return err.response?.data?.error ?? err.message
+    const d = err.response?.data
+    return d?.error ?? d?.message ?? d?.msg ?? d ?? err.message
   }
   return 'Terjadi kesalahan'
 }
